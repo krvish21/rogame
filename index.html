@@ -272,10 +272,11 @@ input:focus {
 }
 #display-room-id {
   font-family: 'Courier New', monospace;
-  font-size: 1.4rem;
+  font-size: 2.8rem;
   font-weight: bold;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.35em;
   color: var(--gold);
+  text-shadow: 0 0 20px rgba(255,215,0,0.4);
 }
 #btn-copy {
   background: none;
@@ -545,7 +546,7 @@ input:focus {
         <button id="btn-create" class="btn btn-primary">💌 Create Game</button>
         <div class="divider"><span>or</span></div>
         <div class="join-row">
-          <input id="join-id" type="text" placeholder="Enter Room ID…" maxlength="20"/>
+          <input id="join-id" type="text" placeholder="4-digit code…" maxlength="4" inputmode="numeric" pattern="[0-9]*"/>
           <button id="btn-join" class="btn btn-secondary">🏹 Join Game</button>
         </div>
       </div>
@@ -774,17 +775,35 @@ const Net = (() => {
 
   function createRoom(onId) {
     _isHost = true;
-    peer = new Peer(undefined, { debug: 0 });
-    peer.on('open', id => onId(id));
+    // Generate a short 4-digit room code (e.g. "7392") as the PeerJS ID
+    // Prefix with "hd-" so it's a valid, unlikely-to-collide PeerJS ID
+    const shortCode = String(Math.floor(1000 + Math.random() * 9000));
+    const peerId = 'hd-' + shortCode;
+    peer = new Peer(peerId, { debug: 0 });
+    peer.on('open', () => onId(shortCode));
     peer.on('connection', c => { conn = c; _setupConn(); _onOpen && _onOpen(); });
-    peer.on('error', e => showToast('❌ ' + e.type));
+    peer.on('error', e => {
+      // If ID taken, try another code
+      if (e.type === 'unavailable-id') {
+        peer.destroy();
+        const newCode = String(Math.floor(1000 + Math.random() * 9000));
+        peer = new Peer('hd-' + newCode, { debug: 0 });
+        peer.on('open', () => onId(newCode));
+        peer.on('connection', c => { conn = c; _setupConn(); _onOpen && _onOpen(); });
+        peer.on('error', e2 => showToast('❌ ' + e2.type));
+      } else {
+        showToast('❌ ' + e.type);
+      }
+    });
   }
 
   function joinRoom(roomId) {
     _isHost = false;
+    // Accept either the short code ("7392") or full id ("hd-7392")
+    const fullId = roomId.startsWith('hd-') ? roomId : 'hd-' + roomId.trim();
     peer = new Peer(undefined, { debug: 0 });
     peer.on('open', () => {
-      conn = peer.connect(roomId, { reliable: false, serialization: 'json' });
+      conn = peer.connect(fullId, { reliable: false, serialization: 'json' });
       _setupConn();
       conn.on('open', () => _onOpen && _onOpen());
     });
